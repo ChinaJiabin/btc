@@ -1,0 +1,130 @@
+# -*- coding: utf-8 -*-
+import time
+import datetime
+import httplib
+import urllib
+import urllib2
+import json
+import md5
+
+class okCoin:
+  
+  def __init__(self, typeTc, api_key, api_secret): 
+        self.api_key    = api_key
+        self.api_secret = api_secret
+        self.typeTc     = typeTc
+
+        self.url={ 'login'     :"www.okcoin.cn",
+
+                   'btcTicker' :'https://www.okcoin.cn/api/ticker.do?symbol=btc_cny' ,
+                   'ltcTicker' :'https://www.okcoin.cn/api/ticker.do?symbol=ltc_cny' ,
+
+                   'btcDepth'  :'https://www.okcoin.cn/api/depth.do?symbol=btc_cny'  ,
+                   'ltcDepth'  :'https://www.okcoin.cn/api/depth.do?symbol=ltc_cny'  ,
+                   
+                   'btcHistory':'https://www.okcoin.cn/api/trades.do?symbol=btc_cny' ,
+                   'ltcHistory':'https://www.okcoin.cn/api/trades.do?symbol=ltc_cny' }
+
+  def __signature(self, params):
+        s = ''
+        for k in sorted(params.keys()):
+            if len(s) > 0:
+               s += '&'
+	       s += k + '=' + str(params[k])
+            else:
+               s += k + '=' + str(params[k])               
+        return md5.new(s + self.api_secret).hexdigest().upper()
+
+  def __tapiCall(self, method, params={}):
+        params["partner"] = self.api_key
+        params["sign"] = self.__signature(params)
+        headers = {
+            "Content-type":"application/x-www-form-urlencoded",
+        }
+        
+        while 1:
+          try:
+            conn = httplib.HTTPSConnection(self.url['login'], timeout=20)
+            break
+          except Exception as e:
+            print e
+            time.sleep(10)
+
+        params = urllib.urlencode(params)
+        conn.request("POST", "/api/%s.do" % method, params, headers)
+        response = conn.getresponse()
+        data = json.load(response)       
+        conn.close()
+
+        if data["result"]:
+           return data
+        else:
+            raise Exception("error code %s" % data["errorCode"])
+
+  def trade(self, typeDeal, price, amount):
+      params = {
+                "symbol" : self.typeTc+'_cny',
+                "type"   : typeDeal,
+                "rate"   : price,
+                "amount" : amount
+                }
+      result = self.__tapiCall('trade', params)
+      return result["order_id"]
+
+  def cancel(self, order_id):
+      params = { "symbol": self.typeTc+'_cny', "order_id" : order_id }
+      return type(self.__tapiCall('cancelorder', params)) == dict
+
+  def getOrders(self, order_id=-1):
+      params = { "symbol"   :self.typeTc+'_cny', "order_id" : order_id }
+      result = self.__tapiCall('getorder', params)
+      return result["orders"]
+
+  def getOrderHistory( self, currentPage ):
+      params = { "symbol" :self.typeTc+'_cny', "status" : 1, 'currentPage' : currentPage, 'pageLength' : 50}
+      result = self.__tapiCall('getOrderHistory', params)
+      return result
+
+  def getTicker(self):
+      while 1:
+        try:
+          html = urllib2.urlopen(self.url[self.typeTc+'Ticker']).read()
+          data = json.loads(html)
+          return data
+        except:
+          print "5秒后，重新读取ticker"
+          time.sleep(5)
+  
+  def getDepth(self):
+      while 1:
+        try:
+          html = urllib2.urlopen(self.url[self.typeTc+'Depth']).read()
+          data = json.loads(html)
+          return data
+        except:
+          print "5秒后，重新读取depth"
+          time.sleep(5)
+
+  def getHistory(self):
+      while 1:
+        try:
+          html = urllib2.urlopen(self.url[self.typeTc+'History']).read()
+          data = json.loads(html)
+          return data
+        except:
+          print "5秒后，重新读取history"
+          time.sleep(5)
+  
+  def isDeal(self,order_id):
+      return self.getOrders(order_id)[0]['status'] == 2
+
+  def averagePrice(self, numBid, numAsk ):
+      bidData = self.getDepth()['bids'][0:numBid]
+      askData = self.getDepth()['asks'][::-1][0:numAsk]
+
+      return  round( sum( map(lambda x:x[0]*x[1], bidData ) )/sum( map(lambda x:x[1], bidData ) ), 2),\
+              round( sum( map(lambda x:x[0]*x[1], askData ) )/sum( map(lambda x:x[1], askData ) ), 2)
+
+
+
+
